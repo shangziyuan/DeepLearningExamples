@@ -61,10 +61,10 @@ def parse_args():
                         help='number of examples for each iteration')
     parser.add_argument('--valid-users-per-batch', type=int, default=5000,
                         help='Number of users tested in each evaluation batch')
-    parser.add_argument('-f', '--factors', type=int, default=64,
+    parser.add_argument('-f', '--factors', type=int, default=1,
                         help='number of predictive factors')
     parser.add_argument('--layers', nargs='+', type=int,
-                        default=[256, 256, 128, 64],
+                        default=[2, 2, 1, 1],
                         help='size of hidden layers for MLP')
     parser.add_argument('-n', '--negative-samples', type=int, default=4,
                         help='number of negative examples per interaction')
@@ -176,14 +176,6 @@ def main():
     else:
         dllogger.init(backends=[])
 
-    dllogger.metadata("best_epoch", {"unit": None})
-    dllogger.metadata("first_epoch_to_hit", {"unit": None})
-    dllogger.metadata("best_hr", {"unit": None})
-    dllogger.metadata("average_eval_time_per_epoch", {"unit": "s"})
-    dllogger.metadata("average_train_time_per_epoch", {"unit": "s"})
-    dllogger.metadata("average_train_throughput", {"unit": "samples/s"})
-    dllogger.metadata("average_eval_throughput", {"unit": "samples/s"})
-
     args.world_size = hvd.size()
     dllogger.log(data=vars(args), step='PARAMETER')
 
@@ -235,7 +227,7 @@ def main():
     # Create and run Data Generator in a separate thread
     data_generator = DataGenerator(
         args.seed,
-        hvd.local_rank(),
+        hvd.rank(),
         nb_users,
         nb_items,
         neg_mat,
@@ -344,6 +336,7 @@ def main():
     eval_times = list()
     # Accuracy Metrics
     first_to_target = None
+    time_to_train = 0.0
     best_hr = 0
     best_epoch = 0
     # Buffers for global metrics
@@ -358,6 +351,7 @@ def main():
     local_ndcg_count = np.ones(1)
 
     # Begin training
+    begin_train = time.time()
     for epoch in range(args.epochs):
         # Train for one epoch
         train_start = time.time()
@@ -426,9 +420,11 @@ def main():
                 # Update summary metrics
                 if hit_rate > args.target and first_to_target is None:
                     first_to_target = epoch
+                    time_to_train = time.time() - begin_train
                 if hit_rate > best_hr:
                     best_hr = hit_rate
                     best_epoch = epoch
+                    time_to_best =  time.time() - begin_train
                     if hit_rate > args.target and final_checkpoint_path:
                         saver.save(sess, final_checkpoint_path)
 
@@ -445,6 +441,8 @@ def main():
             'average_eval_time_per_epoch': np.mean(eval_times),
             'average_eval_throughput': np.mean(eval_throughputs),
             'first_epoch_to_hit': first_to_target,
+            'time_to_train': time_to_train,
+            'time_to_best': time_to_best,
             'best_hr': best_hr,
             'best_epoch': best_epoch})
         dllogger.flush()
