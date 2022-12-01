@@ -7,10 +7,10 @@ train: &train
    <<: *wt103
    cuda: true
    n_layer: 16
-   d_model: 512
+   d_model: 256
    n_head: 8
-   d_head: 64
-   d_inner: 2048
+   d_head: 24
+   d_inner: 256
    dropout: 0.1
    dropatt: 0.0
    optim: jitlamb
@@ -18,14 +18,14 @@ train: &train
    eta_min: 0.001
    roll: true
    warmup_step: 1000
-   max_step: 40000
+   max_step: 4000
    tgt_len: 192
    mem_len: 192
    eval_tgt_len: 192
-   batch_size: 256
+   batch_size: 16
    multi_gpu: ddp
-   log_interval: 10
-   eval_interval: 5000
+   log_interval: 1
+   eval_interval: 500
    vocab: word
    adaptive: true
 
