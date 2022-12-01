@@ -21,12 +21,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
-
-os.environ['KMP_AFFINITY'] = 'disabled'
-
 import argparse
 import logging
+import os
 import sys
 import time
 from ast import literal_eval
@@ -38,7 +35,6 @@ import torch.optim
 import torch.utils.data.distributed
 
 import seq2seq.data.config as config
-import seq2seq.gpu_affinity as gpu_affinity
 import seq2seq.train.trainer as trainers
 import seq2seq.utils as utils
 from seq2seq.data.dataset import LazyParallelDataset
@@ -129,7 +125,7 @@ def parse_args():
 
     # model
     model = parser.add_argument_group('model setup')
-    model.add_argument('--hidden-size', default=1024, type=int,
+    model.add_argument('--hidden-size', default=32, type=int,
                        help='hidden size of the model')
     model.add_argument('--num-layers', default=4, type=int,
                        help='number of RNN layers in encoder and in decoder')
@@ -158,13 +154,6 @@ def parse_args():
                          help='controls preallocation')
     general.add_argument('--dllog-file', type=str, default='train_log.json',
                          help='Name of the DLLogger output file')
-    general.add_argument('--affinity', type=str,
-                         default='socket_unique_interleaved',
-                         choices=['socket', 'single', 'single_unique',
-                                  'socket_unique_interleaved',
-                                  'socket_unique_continuous',
-                                  'disabled'],
-                         help='type of CPU affinity')
 
     exclusive_group(group=general, name='eval', default=True,
                     help='run validation and test after every epoch')
@@ -199,7 +188,7 @@ def parse_args():
                           help='training iter size, training loop will \
                           accumulate gradients over N iterations and execute \
                           optimizer every N steps')
-    training.add_argument('--epochs', default=6, type=int,
+    training.add_argument('--epochs', default=1, type=int,
                           help='max number of training epochs')
 
     training.add_argument('--grad-clip', default=5.0, type=float,
@@ -378,14 +367,6 @@ def main():
     """
     training_start = time.time()
     args = parse_args()
-    if args.affinity != 'disabled':
-        nproc_per_node = torch.cuda.device_count()
-        affinity = gpu_affinity.set_affinity(
-            args.local_rank,
-            nproc_per_node,
-            args.affinity
-        )
-        print(f'{args.local_rank}: thread affinity: {affinity}')
     device = utils.set_device(args.cuda, args.local_rank)
     utils.init_distributed(args.cuda)
     args.rank = utils.get_rank()
@@ -567,8 +548,6 @@ def main():
             logging.error(f'No checkpoint found at {args.resume}')
 
     # training loop
-    train_loss = float('inf')
-    val_loss = float('inf')
     best_loss = float('inf')
     training_perf = []
     break_training = False
@@ -641,8 +620,6 @@ def main():
         table.write('Training Summary', args.math)
 
     summary = {
-        'val_loss': val_loss,
-        'train_loss': train_loss,
         'train_throughput': avg_training_perf,
         'train_elapsed': training_time,
         'test_bleu': test_bleu,
